@@ -73,28 +73,41 @@ export class EufyLogin extends Base {
 
     public async getDevices(): Promise<any> {
         // // Get all devices from the Eufy Cloud API. 
-        this.eufyApiDevices = await this.eufyApi.getCloudDeviceList();
+        try {
+            this.eufyApiDevices = await this.eufyApi.getCloudDeviceList();    
+        } catch (error) {
+            this.eufyApiDevices = [];
+        }
 
         if (this.sid) {
-            this.cloudDevices = await this.tuyaApi.getDeviceList();
-            this.cloudDevices = this.cloudDevices.map(device => ({
-                ...this.findModel(device.devId),
-                apiType: this.checkApiType(device.dps),
-                mqtt: false,
-                dps: device?.dps || {}
-            }));
+            try {
+                this.cloudDevices = await this.tuyaApi.getDeviceList();
+                this.cloudDevices = this.cloudDevices.map(device => ({
+                    ...this.findModel(device.devId),
+                    apiType: this.checkApiType(device.dps),
+                    mqtt: false,
+                    dps: device?.dps || {}
+                }));
+            } catch (error) {
+                this.cloudDevices = [];
+            }
         }
 
         // Devices like the X10 are not supported by the Tuya Cloud API
-        this.mqttDevices = await this.eufyApi.getDeviceList();
-        this.mqttDevices = this.mqttDevices.map(device => ({
-            ...this.findModel(device.device_sn),
-            apiType: this.checkApiType(device.dps),
-            mqtt: true,
+        try {
+            this.mqttDevices = await this.eufyApi.getDeviceList();
+            this.mqttDevices = this.mqttDevices.map(device => ({
+                ...this.findModel(device.device_sn),
+                apiType: this.checkApiType(device.dps),
+                matter: !!device?.is_integrated || false,
+                mqtt: true,
             dps: device?.dps || {}
-        }));
+            }));
 
-        this.mqttDevices = this.mqttDevices.filter(device => !device.invalid);
+            this.mqttDevices = this.mqttDevices.filter(device => !device.invalid);
+        } catch (error) {
+            this.mqttDevices = [];
+        }
     }
 
     public async getCloudDevice(deviceId: string): Promise<any> {

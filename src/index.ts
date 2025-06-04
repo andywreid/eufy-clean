@@ -4,7 +4,6 @@ import { EufyLogin } from './controllers/Login';
 import { LocalConnect } from './controllers/LocalConnect';
 import { CloudConnect } from './controllers/CloudConnect';
 import { MqttConnect } from './controllers/MqttConnect';
-import { sleep } from './lib/utils';
 
 export class EufyClean {
     private eufyCleanApi: EufyLogin;
@@ -63,7 +62,7 @@ export class EufyClean {
         }
 
         if (!('localKey' in deviceConfig) && !device.mqtt) {
-            return new CloudConnect({ ...device, autoUpdate: deviceConfig.autoUpdate, debug: deviceConfig.debug }, this.eufyCleanApi,);
+            return new CloudConnect({ ...device, autoUpdate: deviceConfig.autoUpdate, debug: deviceConfig.debug }, this.eufyCleanApi);
 
         }
 

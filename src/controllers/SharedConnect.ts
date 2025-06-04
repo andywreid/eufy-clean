@@ -1,6 +1,6 @@
 import { Base } from "./Base";
 import { EUFY_CLEAN_WORK_MODE, EUFY_CLEAN_NOVEL_CLEAN_SPEED, EUFY_CLEAN_CONTROL } from "../constants/state.constants";
-import { EUFY_CLEAN_X_SERIES } from "../constants/devices.constants";
+import { EUFY_CLEAN_X_SERIES, EUFY_CLEAN_E_SERIES } from "../constants/devices.constants";
 import { decode, getMultiData, getProtoFile, encode } from '../lib/utils';
 
 export class SharedConnect extends Base {
@@ -76,8 +76,8 @@ export class SharedConnect extends Base {
     async getControlResponse() {
         try {
             if (this.novelApi) {
-                const value = await decode('./proto/cloud/control.proto', 'ModeCtrlResponse', this.robovacData.PLAY_PAUSE);
-                console.log('152 - control response', value)
+                //BAgNEH0=
+                const value = await decode('./proto/cloud/control.proto', 'ModeCtrlResponse', 'AhB8');
                 return value || {};
             }
 
@@ -199,6 +199,7 @@ export class SharedConnect extends Base {
 
         if (this.novelApi) {
             value = await encode('proto/cloud/control.proto', 'ModeCtrlRequest', {
+                method: EUFY_CLEAN_CONTROL.START_AUTO_CLEAN,
                 autoClean: {
                     cleanTimes: 1
                 }
@@ -297,7 +298,7 @@ export class SharedConnect extends Base {
         }
 
 
-        if (EUFY_CLEAN_X_SERIES.includes(this.deviceModel)) {
+        if (EUFY_CLEAN_X_SERIES.includes(this.deviceModel) || EUFY_CLEAN_E_SERIES.includes(this.deviceModel)) {
             await this.sendCommand({ [this.DPSMap.WORK_MODE]: EUFY_CLEAN_WORK_MODE.SMALL_ROOM })
             return await this.play();
         }

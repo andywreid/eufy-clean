@@ -39,6 +39,13 @@ export class MqttConnect extends SharedConnect {
 
             const device = await this.eufyCleanApi.getMqttDevice(this.deviceId);
 
+            const deviceAdminUserId = device?.member?.admin_user_id ||  device?.member?.member_user_id || this.eufyCleanApi.mqttCredentials.user_id;
+            if(deviceAdminUserId !== this.eufyCleanApi.mqttCredentials.user_id) {
+                console.error(`Device ${this.deviceId} is not owned by the user ${this.eufyCleanApi.mqttCredentials.user_id}`, device);
+                console.log(`Overriding mqttCredentials with device admin user_id: ${deviceAdminUserId}`);
+                this.mqttCredentials.user_id = deviceAdminUserId;
+            }
+
             if (checkApiType) {
                 await this.checkApiType(device?.dps);
             }
@@ -71,7 +78,7 @@ export class MqttConnect extends SharedConnect {
                     }-${Date.now()}`,
                 username: this.mqttCredentials.thing_name,
                 cert: Buffer.from(this.mqttCredentials.certificate_pem, 'utf8'),
-                key: Buffer.from(this.mqttCredentials.private_key, 'utf8'),
+                key: Buffer.from(this.mqttCredentials.private_key, 'utf8')
             });
 
             this.setupListeners();
@@ -83,12 +90,14 @@ export class MqttConnect extends SharedConnect {
             console.info('Connected to MQTT');
             console.debug(`Subscribe to cmd/eufy_home/${this.deviceModel}/${this.deviceId}/res`);
             this.mqttClient && this.mqttClient.subscribe(`cmd/eufy_home/${this.deviceModel}/${this.deviceId}/res`);
-            //this.mqttClient && this.mqttClient.subscribe(`smart/mb/in/${this.deviceId}`);
+
+            console.debug(`Subscribe to smart/mb/in/${this.deviceId}`);
+            this.mqttClient && this.mqttClient.subscribe(`smart/mb/in/${this.deviceId}`);
         });
 
         this.mqttClient.on('message', async (topic, message) => {
             const messageParsed = JSON.parse(message.toString());
-
+            if(this.debugLog) console.log(`Received message on ${topic}: `, messageParsed);
             console.debug(`Received message on ${topic}: `, messageParsed?.payload?.data);
 
             await this.mapData(messageParsed?.payload?.data)
@@ -125,8 +134,8 @@ export class MqttConnect extends SharedConnect {
                 head: {
                     client_id: `android-${this.mqttCredentials.app_name}-eufy_android_${this.openudid}_${this.mqttCredentials.user_id}`,
                     cmd: 65537,
-                    cmd_status: 2,
-                    msg_seq: 1,
+                    cmd_status: 1,
+                    msg_seq: 2,
                     seed: '',
                     sess_id: `android-${this.mqttCredentials.app_name}-eufy_android_${this.openudid}_${this.mqttCredentials.user_id}`,
                     sign_code: 0,
@@ -141,7 +150,7 @@ export class MqttConnect extends SharedConnect {
             console.debug(`Sending command to device ${this.deviceId}`, payload);
 
             this.mqttClient.publish(`cmd/eufy_home/${this.deviceModel}/${this.deviceId}/req`, JSON.stringify(mqqtVal));
-            // this.mqttClient.publish(`smart/mb/out/${this.deviceId}`);
+            this.mqttClient.publish(`smart/mb/out/${this.deviceId}`, JSON.stringify(mqqtVal));
         } catch (error) {
             console.error(error)
         }

@@ -100,6 +100,8 @@ export class EufyApi {
                     return;
                 }
                 this.userInfo.gtoken = crypto.createHash('md5').update(res.data.user_center_id).digest('hex');
+
+                return res.data;
             })
             .catch((error) => {
                 console.error('get user center info failed');
@@ -134,6 +136,7 @@ export class EufyApi {
                 }
 
                 console.info(`Found ${data.devices.length} devices via Eufy Cloud`);
+                console.debug(JSON.stringify(data, null, 2));
                 return data.devices;
             })
             .catch((error) => {
