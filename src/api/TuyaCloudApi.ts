@@ -1,4 +1,4 @@
-import TuyaCloud from '../lib/TuyaCloud.js';
+import TuyaCloud from '../lib/TuyaCloud';
 
 export class TuyaCloudApi {
     private tuyaCloud: any;
