@@ -97,7 +97,7 @@ export class EufyLogin extends Base {
         try {
             this.mqttDevices = await this.eufyApi.getDeviceList();
             this.mqttDevices = this.mqttDevices.map(device => ({
-                ...this.findModel(device.device_sn),
+                ...this.findModel(device.device_sn, device),
                 apiType: this.checkApiType(device.dps),
                 matter: !!device?.is_integrated || false,
                 mqtt: true,
@@ -143,7 +143,7 @@ export class EufyLogin extends Base {
         return 'legacy'
     }
 
-    private findModel(deviceId: string) {
+    private findModel(deviceId: string, aiotDevice?: any) {
         const device = this.eufyApiDevices.find(d => d.id === deviceId);
 
         if (device) {
@@ -153,6 +153,20 @@ export class EufyLogin extends Base {
                 deviceName: device.alias_name || device.device_name || device.name,
                 deviceModelName: device?.product?.name,
                 invalid: false
+            }
+        }
+
+        // Fallback: when the V2 endpoint returns no metadata for a device
+        // (e.g. devices added through the modern Eufy Clean app rather than
+        // the legacy EufyHome app), use AIOT device-list data instead.
+        if (aiotDevice) {
+            const modelCode = (aiotDevice.device_model || '').substring(0, 5);
+            return {
+                deviceId,
+                deviceModel: modelCode,
+                deviceName: aiotDevice.alias_name || aiotDevice.device_name || 'Eufy Robovac',
+                deviceModelName: null,
+                invalid: !modelCode
             }
         }
 
