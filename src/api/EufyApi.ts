@@ -1,6 +1,6 @@
 import axios from 'axios';
 import crypto from 'crypto';
-import { EUFY_API_DEVICE_LIST, EUFY_API_DEVICE_V2, EUFY_API_LOGIN, EUFY_API_LOGIN_V2, EUFY_DOMAIN_CONFIGS } from '../constants';
+import { EUFY_API_DEVICE_LIST, EUFY_API_DEVICE_LIST_HOME, EUFY_API_MQTT_INFO, EUFY_DOMAIN_CONFIGS, EUFY_API_HOUSE_LIST } from '../constants';
 
 
 export class EufyApi {
@@ -9,7 +9,6 @@ export class EufyApi {
     private password: string;
     public openudid: string;
     public session: any;
-    private selectedConfig: any;
     public userInfo: any;
 
     constructor(username: string, password: string, openudid: string) {
@@ -22,7 +21,7 @@ export class EufyApi {
 
     public async login(): Promise<any> {
         let session = null;
-        try{
+        try {
             session = await this.eufyLogin(true);
         } catch {
             session = await this.eufyLogin(false);
@@ -35,8 +34,8 @@ export class EufyApi {
     }
 
     public async sofLogin(): Promise<any> {
-         let session = null;
-        try{
+        let session = null;
+        try {
             session = await this.eufyLogin(true);
         } catch {
             session = await this.eufyLogin(false);
@@ -46,10 +45,7 @@ export class EufyApi {
     }
 
     public async eufyLogin(v2?: boolean): Promise<void> {
-
-        
-
-const selectedConfig = v2 ? EUFY_DOMAIN_CONFIGS[0] : EUFY_DOMAIN_CONFIGS[1];
+        const selectedConfig = v2 ? EUFY_DOMAIN_CONFIGS[0] : EUFY_DOMAIN_CONFIGS[1];
 
         console.info(`Attempting ${selectedConfig.label} login`);
         return await this.requestClient({
@@ -79,7 +75,6 @@ const selectedConfig = v2 ? EUFY_DOMAIN_CONFIGS[0] : EUFY_DOMAIN_CONFIGS[1];
                 if (res.data && res.data.access_token) {
                     console.info('eufyLogin successful');
 
-                    this.selectedConfig = selectedConfig;
                     this.session = res.data;
 
                     return res.data;
@@ -155,24 +150,69 @@ const selectedConfig = v2 ? EUFY_DOMAIN_CONFIGS[0] : EUFY_DOMAIN_CONFIGS[1];
                     data = res.data.data;
                 }
 
-                console.info(`Found ${data.devices.length} devices via Eufy Cloud`);
+                console.info(`Found ${data?.devices?.length || 0} devices via Eufy Cloud`);
                 console.debug(JSON.stringify(data, null, 2));
-                return data.devices;
+                return data?.devices || [];
             })
             .catch((error) => {
                 console.error('get device list failed');
                 console.error(error);
                 error.response && console.error(JSON.stringify(error.response.data));
+                return [];
             });
 
-        return devices;
+        console.log(`got ${devices.length} devices`);
+        // Fallback: accounts whose devices were registered through the modern
+        // unified Eufy app are not always returned by /v1/device/v2. Try the
+        // home-api endpoint before giving up. (mirrors jeppesens/eufy-clean#122)
+        if (!devices || !devices.length) {
+            const homeDevices = await this.getHomeDeviceList();
+            if (homeDevices.length) {
+                console.info(`Found ${homeDevices.length} devices via Eufy home-api`);
+                return homeDevices;
+            } else {
+                console.info(`Found ${homeDevices.length} devices via Eufy home-api`);
+            }
+        }
+
+        return devices || [];
+    }
+
+    // home-api.eufylife.com device list used by the unified Eufy app. Best-effort:
+    // never throws, returns [] on any failure. Response shape varies, so probe a
+    // few known structures. (mirrors jeppesens/eufy-clean#122 _get_home_device_list)
+    private async getHomeDeviceList(): Promise<any[]> {
+        return await this.requestClient({
+            method: 'get',
+            maxBodyLength: Infinity,
+            url: EUFY_API_HOUSE_LIST,
+            headers: {
+                'content-type': 'application/json',
+                'user-agent': 'EufyHome-Android-3.1.3-753',
+                token: this.session.access_token,
+                openudid: this.openudid,
+            },
+        })
+            .then((res) => {
+                const data = res.data;
+                let devices = data?.devices ?? data?.data ?? data;
+                if (devices && !Array.isArray(devices) && Array.isArray(devices.devices)) {
+                    devices = devices.devices;
+                }
+                return Array.isArray(devices) ? devices : [];
+            })
+            .catch((error) => {
+                console.error('get home-api device list failed');
+                error.response && console.error(JSON.stringify(error.response.data));
+                return [];
+            });
     }
 
     public async getDeviceList(device_sn?: string): Promise<any> {
         const devices = await this.requestClient({
             method: 'post',
             maxBodyLength: Infinity,
-            url: 'https://aiot-clean-api-pr.eufylife.com/app/devicerelation/get_device_list',
+            url: EUFY_API_DEVICE_LIST,
             headers: {
                 'user-agent': 'EufyHome-Android-3.1.3-753',
                 timezone: 'Europe/Berlin',
@@ -272,7 +312,7 @@ const selectedConfig = v2 ? EUFY_DOMAIN_CONFIGS[0] : EUFY_DOMAIN_CONFIGS[1];
         return await this.requestClient({
             method: 'post',
             maxBodyLength: Infinity,
-            url: 'https://aiot-clean-api-pr.eufylife.com/app/devicemanage/get_user_mqtt_info',
+            url: EUFY_API_MQTT_INFO,
             headers: {
                 'content-type': 'application/json',
                 'user-agent': 'EufyHome-Android-3.1.3-753',

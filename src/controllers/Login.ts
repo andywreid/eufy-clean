@@ -96,7 +96,20 @@ export class EufyLogin extends Base {
         // Devices like the X10 are not supported by the Tuya Cloud API
         try {
             this.mqttDevices = await this.eufyApi.getDeviceList();
-            this.mqttDevices = this.mqttDevices.map(device => ({
+
+            // Fallback: the AIOT (devicerelation) list can come back empty for
+            // accounts whose devices were registered through the modern Eufy
+            // app. Synthesise MQTT device entries from the cloud device list so
+            // those devices are still discovered. Model/name are resolved by
+            // findModel against the cloud list. (mirrors jeppesens/eufy-clean#122)
+            if ((!this.mqttDevices || !this.mqttDevices.length) && this.eufyApiDevices?.length) {
+                console.info('AIOT device list empty — constructing MQTT devices from cloud device list');
+                this.mqttDevices = this.eufyApiDevices
+                    .filter((d: any) => d?.id)
+                    .map((d: any) => ({ device_sn: d.id, dps: d?.dps || {} }));
+            }
+
+            this.mqttDevices = (this.mqttDevices || []).map(device => ({
                 ...this.findModel(device.device_sn, device),
                 apiType: this.checkApiType(device.dps),
                 matter: !!device?.is_integrated || false,
