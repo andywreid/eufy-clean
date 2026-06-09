@@ -1,5 +1,6 @@
 import axios from 'axios';
 import crypto from 'crypto';
+import { EUFY_API_DEVICE_LIST, EUFY_API_DEVICE_V2, EUFY_API_LOGIN, EUFY_API_LOGIN_V2, EUFY_DOMAIN_CONFIGS } from '../constants';
 
 
 export class EufyApi {
@@ -8,6 +9,7 @@ export class EufyApi {
     private password: string;
     public openudid: string;
     public session: any;
+    private selectedConfig: any;
     public userInfo: any;
 
     constructor(username: string, password: string, openudid: string) {
@@ -19,7 +21,13 @@ export class EufyApi {
     }
 
     public async login(): Promise<any> {
-        const session = await this.eufyLogin();
+        let session = null;
+        try{
+            session = await this.eufyLogin(true);
+        } catch {
+            session = await this.eufyLogin(false);
+        }
+
         const user = await this.getUserinfo();
         const mqtt = await this.getMqttCredentials();
 
@@ -27,17 +35,28 @@ export class EufyApi {
     }
 
     public async sofLogin(): Promise<any> {
-        const session = await this.eufyLogin();
+         let session = null;
+        try{
+            session = await this.eufyLogin(true);
+        } catch {
+            session = await this.eufyLogin(false);
+        }
 
         return { session };
     }
 
-    public async eufyLogin(): Promise<void> {
+    public async eufyLogin(v2?: boolean): Promise<void> {
+
+        
+
+const selectedConfig = v2 ? EUFY_DOMAIN_CONFIGS[0] : EUFY_DOMAIN_CONFIGS[1];
+
+        console.info(`Attempting ${selectedConfig.label} login`);
         return await this.requestClient({
             method: 'post',
-            url: 'https://home-api.eufylife.com/v1/user/email/login',
+            url: selectedConfig.url,
             headers: {
-                category: 'Home',
+                category: selectedConfig.category,
                 Accept: '*/*',
                 openudid: this.openudid,
                 'Accept-Language': 'nl-NL;q=1, uk-DE;q=0.9, en-NL;q=0.8',
@@ -52,14 +71,15 @@ export class EufyApi {
             data: {
                 email: this.username,
                 password: this.password,
-                client_id: 'eufyhome-app',
-                client_secret: 'GQCpr9dSp3uQpsOMgJ4xQ',
+                client_id: selectedConfig.client_id,
+                client_secret: selectedConfig.client_secret,
             },
         })
             .then((res) => {
                 if (res.data && res.data.access_token) {
                     console.info('eufyLogin successful');
 
+                    this.selectedConfig = selectedConfig;
                     this.session = res.data;
 
                     return res.data;
