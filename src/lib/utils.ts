@@ -21,6 +21,9 @@ export const getProtoFile = function (proto) {
 }
 
 export const decode = async function (proto, type, base64Value) {
+    if (typeof base64Value !== 'string') {
+        throw new TypeError(`decode() expected a base64 string for ${type} but received ${typeof base64Value}`);
+    }
     const root = await getProtoFile(proto);
 
     const protoLookupType = root.lookupType(type);

@@ -1,5 +1,5 @@
 import { Base } from "./Base";
-import { EUFY_CLEAN_WORK_MODE, EUFY_CLEAN_NOVEL_CLEAN_SPEED, EUFY_CLEAN_CONTROL } from "../constants/state.constants";
+import { EUFY_CLEAN_WORK_MODE, EUFY_CLEAN_NOVEL_CLEAN_SPEED, EUFY_CLEAN_LEGACY_CLEAN_SPEED, EUFY_CLEAN_CLEAN_SPEED, EUFY_CLEAN_CONTROL } from "../constants/state.constants";
 import { EUFY_CLEAN_X_SERIES, EUFY_CLEAN_E_SERIES } from "../constants/devices.constants";
 import { decode, getMultiData, getProtoFile, encode } from '../lib/utils';
 
@@ -64,13 +64,66 @@ export class SharedConnect extends Base {
 
 
     async getCleanSpeed() {
-        if (typeof this.robovacData?.CLEAN_SPEED === 'number' || this.robovacData?.CLEAN_SPEED?.length === 1) {
-            const cleanSpeeds = Object.values(EUFY_CLEAN_NOVEL_CLEAN_SPEED)
-            return <string>cleanSpeeds[parseInt(this.robovacData.CLEAN_SPEED)].toLowerCase();
+        // Set of values we are willing to emit. Anything else (e.g. an undecoded
+        // base64 protobuf blob) must never reach the consumer: on Homey it throws
+        // "Invalid enum capability ... Expected: off,quiet,standard,turbo,max".
+        const allowed = new Set<string>(
+            [
+                ...Object.values(EUFY_CLEAN_NOVEL_CLEAN_SPEED),
+                ...Object.values(EUFY_CLEAN_LEGACY_CLEAN_SPEED),
+            ].map((s) => s.toLowerCase()),
+        );
 
+        const normalize = (val: unknown): string | null => {
+            if (val == null) return null;
+
+            // Numeric index into the novel speed list (legacy/dp form).
+            if (typeof val === 'number' || (typeof val === 'string' && /^\d+$/.test(val))) {
+                const speeds = Object.values(EUFY_CLEAN_NOVEL_CLEAN_SPEED);
+                return speeds[parseInt(val as any, 10)]?.toLowerCase() ?? null;
+            }
+
+            if (typeof val === 'string') {
+                const lower = val.toLowerCase();
+                // The X10's top tier (protobuf enum MAX_PLUS) has no distinct
+                // capability value downstream; collapse it onto `max`.
+                if (lower === 'max_plus') return EUFY_CLEAN_CLEAN_SPEED.MAX.toLowerCase();
+                if (allowed.has(lower)) return lower;
+            }
+
+            // Unrecognized (e.g. a raw base64 protobuf string) -> caller defaults.
+            return null;
+        };
+
+        // X10+ devices report the active suction inside the CleanParam protobuf
+        // (DPS 154), not the dedicated CLEAN_SPEED dp. The proto documents this:
+        // "from the x10 project onwards the fan level here is used; older projects
+        // use a separate dp." Prefer the protobuf value when it is present.
+        if (this.novelApi) {
+            try {
+                const res: any = await this.getCleanParamsResponse();
+                let suction = res?.cleanParam?.fan?.suction
+                    ?? res?.runningCleanParam?.fan?.suction
+                    ?? res?.areaCleanParam?.fan?.suction;
+
+                if (suction == null) {
+                    const req: any = await this.getCleanParamsRequest();
+                    suction = req?.cleanParam?.fan?.suction ?? req?.areaCleanParam?.fan?.suction;
+                }
+
+                // decode() uses `enums: String`, so `suction` is the enum name.
+                const fromParam = normalize(suction);
+                if (fromParam) return fromParam;
+            } catch {
+                // fall through to the dedicated CLEAN_SPEED dp below
+            }
         }
 
-        return this.robovacData?.CLEAN_SPEED?.toLowerCase() || 'standard'.toLowerCase();
+        const fromDp = normalize(this.robovacData?.CLEAN_SPEED);
+        if (fromDp) return fromDp;
+
+        // Never emit an undecoded value — default safely.
+        return EUFY_CLEAN_CLEAN_SPEED.STANDARD.toLowerCase();
     }
 
     async getControlResponse() {
@@ -157,8 +210,18 @@ export class SharedConnect extends Base {
 
     async getErrorCode(): Promise<string | number> {
         try {
+            const raw = this.robovacData?.ERROR_CODE;
+
             if (this.novelApi) {
-                const value = await decode('./proto/cloud/error_code.proto', 'ErrorCode', this.robovacData.ERROR_CODE);
+                // Some firmwares report ERROR_CODE as a raw number (observed:
+                // -2147483647) rather than a base64 protobuf. Passing that to
+                // decode() throws ERR_INVALID_ARG_TYPE inside Buffer.from. Only
+                // decode actual strings; treat numbers as a direct code.
+                if (typeof raw !== 'string') {
+                    return typeof raw === 'number' && raw > 0 ? raw : 0;
+                }
+
+                const value = await decode('./proto/cloud/error_code.proto', 'ErrorCode', raw);
                 if (value?.warn?.length) {
                     return value?.warn[0]
                 }
@@ -166,9 +229,10 @@ export class SharedConnect extends Base {
                 return 0;
             }
 
-            return this.robovacData.ERROR_CODE;
+            return raw;
         } catch (error) {
             console.log(error)
+            return 0;
         }
     }
 
