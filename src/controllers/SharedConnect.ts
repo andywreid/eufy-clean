@@ -1,5 +1,5 @@
 import { Base } from "./Base";
-import { EUFY_CLEAN_WORK_MODE, EUFY_CLEAN_NOVEL_CLEAN_SPEED, EUFY_CLEAN_CONTROL } from "../constants/state.constants";
+import { EUFY_CLEAN_WORK_MODE, EUFY_CLEAN_NOVEL_CLEAN_SPEED, EUFY_CLEAN_CLEAN_SPEED, EUFY_CLEAN_CONTROL } from "../constants/state.constants";
 import { EUFY_CLEAN_X_SERIES, EUFY_CLEAN_E_SERIES } from "../constants/devices.constants";
 import { decode, getMultiData, getProtoFile, encode } from '../lib/utils';
 
@@ -64,13 +64,42 @@ export class SharedConnect extends Base {
 
 
     async getCleanSpeed() {
-        if (typeof this.robovacData?.CLEAN_SPEED === 'number' || this.robovacData?.CLEAN_SPEED?.length === 1) {
-            const cleanSpeeds = Object.values(EUFY_CLEAN_NOVEL_CLEAN_SPEED)
-            return <string>cleanSpeeds[parseInt(this.robovacData.CLEAN_SPEED)].toLowerCase();
+        // X10+ devices report the active suction inside the CleanParam protobuf
+        // (DPS 154), not the dedicated CLEAN_SPEED dp. The proto documents this:
+        // "from the x10 project onwards the fan level here is used; older projects
+        // use a separate dp." Prefer the protobuf value when it is present.
+        if (this.novelApi) {
+            try {
+                const params: any = await this.getCleanParamsResponse();
+                let fan = params?.cleanParam?.fan
+                    ?? params?.runningCleanParam?.fan
+                    ?? params?.areaCleanParam?.fan;
 
+                if (fan?.suction == null) {
+                    const req: any = await this.getCleanParamsRequest();
+                    fan = req?.cleanParam?.fan ?? req?.areaCleanParam?.fan;
+                }
+
+                // decode() is configured with `enums: String`, so `suction` is the
+                // enum name (QUIET | STANDARD | TURBO | MAX | MAX_PLUS), not an index.
+                if (fan?.suction != null) {
+                    return String(fan.suction).toLowerCase();
+                }
+            } catch {
+                // fall through to the dedicated CLEAN_SPEED dp below
+            }
         }
 
-        return this.robovacData?.CLEAN_SPEED?.toLowerCase() || 'standard'.toLowerCase();
+        const raw = this.robovacData?.CLEAN_SPEED;
+
+        // Fallback: dedicated CLEAN_SPEED dp as a numeric index into the novel
+        // speed list, or already a plain string.
+        if (typeof raw === 'number' || (typeof raw === 'string' && /^\d+$/.test(raw))) {
+            const cleanSpeeds = Object.values(EUFY_CLEAN_NOVEL_CLEAN_SPEED);
+            return <string>(cleanSpeeds[parseInt(raw as any, 10)] ?? EUFY_CLEAN_CLEAN_SPEED.STANDARD).toLowerCase();
+        }
+
+        return (typeof raw === 'string' ? raw : EUFY_CLEAN_CLEAN_SPEED.STANDARD).toLowerCase();
     }
 
     async getControlResponse() {
